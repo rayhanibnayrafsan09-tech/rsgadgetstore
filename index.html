@@ -23,7 +23,7 @@ main{max-width:760px;margin:auto;padding:14px 12px 32px}
 label{display:block;font-weight:700;font-size:15px;margin:11px 0}
 input,select{width:100%;border:1px solid #d8e0dd;border-radius:14px;padding:13px 14px;font-size:16px;margin-top:6px;background:#fff}
 .btn{border:0;border-radius:14px;padding:13px 17px;font-size:16px;font-weight:700}.primary{background:var(--green);color:#fff}.gray{background:#e9efed}.red{background:#c62828;color:#fff}
-.dashboard-date{background:#fff;border-radius:18px;padding:7px 12px;margin-bottom:10px;box-shadow:0 3px 12px #00000009}.dashboard-date label{margin:0;font-size:14px}.dashboard-date input{margin-top:4px;padding:10px 12px;border-radius:12px}.cards{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:13px}
 .card{background:#fff;border-radius:24px;padding:17px;border-top:7px solid var(--green);box-shadow:0 4px 18px #0000000a;min-height:112px}
 .card:nth-child(2){border-top-color:#287fc0}.card:nth-child(3){border-top-color:#ed8b11}.card:nth-child(4){border-top-color:#7b4fc4}.card:nth-child(5){border-top-color:#c62828}.card:nth-child(6){border-top-color:#078b55}.card:nth-child(7){border-top-color:#d69e00}.card:nth-child(8){border-top-color:#287fc0}.card:nth-child(9){border-top-color:#078b55}.card:nth-child(10){border-top-color:#078b55}
 .card .label{font-size:16px;color:#59645f}.card .value{font-size:25px;font-weight:800;margin-top:8px}.green{color:var(--green)}
@@ -55,13 +55,14 @@ input,select{width:100%;border:1px solid #d8e0dd;border-radius:14px;padding:13px
 
 <main>
 <section id="dashboard" class="page active">
-<div class="dashboard-date"><label>তারিখ<input type="date" id="dashDate"></label></div>
+<div class="hero"><h1>📊 RS Business Accounts</h1>
+<div class="date-row"><label>তারিখ<input type="date" id="dashDate"></label><button class="btn primary" id="refresh">হিসাব দেখুন</button></div></div>
 <div class="cards" id="cards"></div>
 <div class="panel"><h2 class="section-title">📈 আজকের সংক্ষিপ্ত হিসাব</h2><div class="summary" id="summary"></div></div>
 </section>
 
 <section id="sale" class="page"><div class="panel"><h2 class="section-title">🛒 Sale Entry</h2>
-<form id="saleForm"><input type="hidden" id="saleId"><label>Stock থেকে Product / দাম / বাকি পিস<select id="saleProduct" required></select></label><label>Quantity<input id="saleQty" type="number" min="1" value="1" required></label>
+<form id="saleForm"><input type="hidden" id="saleId"><label>Stock / Product<select id="saleProduct" required></select></label><label>Quantity<input id="saleQty" type="number" min="1" value="1" required></label>
 <label>প্রতি পিস বিক্রয় মূল্য<input id="salePrice" type="number" min="0" step=".01" required></label><label>Delivery Charge<input id="saleDelivery" type="number" min="0" step=".01" value="0"></label>
 <div class="note">হিসাব: মোট বিক্রি − Delivery Charge − পণ্যের ক্রয়মূল্য = মোট লাভ। উদাহরণ: ৳500 − ৳100 − ৳200 = ৳200 লাভ।</div>
 <button class="btn primary" id="saleSave">Sale Save</button><button type="button" class="btn gray hidden" id="saleCancel">Cancel Edit</button></form></div><div class="panel"><h2 class="section-title">সাম্প্রতিক Sale</h2><div id="saleList" class="list"></div></div></section>
@@ -192,32 +193,13 @@ async function syncFromCloud(){
   }catch(e){setSyncStatus("সংযোগ নেই — Local Mode")}
 }
 function pname(id){return S.products[id]?.name||"Unknown Product"}
-function stockUsed(stockId,excludeSaleId=""){
- return vals(S.sales).filter(x=>x.stockId===stockId && x.id!==excludeSaleId).reduce((a,x)=>a+(+x.qty||0),0)
-  - vals(S.returns).filter(r=>{let sale=S.sales[r.saleId];return sale&&sale.stockId===stockId}).reduce((a,r)=>a+(+r.qty||0),0);
-}
-function stockRemaining(stockId,excludeSaleId=""){
- const st=S.stock[stockId];
- return Math.max(0,(+st?.qty||0)-stockUsed(stockId,excludeSaleId));
-}
-function qty(pid){
- let n=vals(S.stock).filter(x=>x.pid===pid).reduce((a,x)=>a+stockRemaining(x.id),0);
- n-=vals(S.sales).filter(x=>x.pid===pid&&!x.stockId&&!x.returned).reduce((a,x)=>a+(+x.qty||0),0);
- n+=vals(S.returns).filter(x=>x.pid===pid&&!x.saleId).reduce((a,x)=>a+(+x.qty||0),0);
- return Math.max(0,n);
-}
-function stockValue(){
- let v=vals(S.stock).reduce((a,x)=>a+stockRemaining(x.id)*(+x.cost||0),0);
- v-=vals(S.sales).filter(x=>!x.stockId&&!x.returned).reduce((a,x)=>a+(+x.qty||0)*(S.products[x.pid]?.cost||0),0);
- v+=vals(S.returns).filter(x=>x.pid&&!x.saleId).reduce((a,x)=>a+(+x.qty||0)*(S.products[x.pid]?.cost||0),0);
- return Math.max(0,v);
-}
-function saleStockOptions(excludeSaleId=""){
- return vals(S.stock).map(st=>{
-   const left=stockRemaining(st.id,excludeSaleId);
-   if(left<=0)return "";
-   return `<option value="${st.id}">${esc(pname(st.pid))} — ${money(st.cost)} / পিস — ${left} পিস বাকি</option>`;
- }).filter(Boolean).join("");
+function stockSold(sid,excludeSaleId=""){return vals(S.sales).filter(x=>x.stockId===sid && x.id!==excludeSaleId).reduce((a,x)=>a+(+x.qty||0),0)}
+function stockReturned(pid){return vals(S.returns).filter(x=>x.pid===pid).reduce((a,x)=>a+(+x.qty||0),0)}
+function stockAvailable(s,excludeSaleId=""){return Math.max(0,(+s.qty||0)-stockSold(s.id,excludeSaleId))}
+function qty(pid){let legacySold=vals(S.sales).filter(x=>x.pid===pid&&!x.stockId&&!x.returned).reduce((a,x)=>a+(+x.qty||0),0);return Math.max(0,vals(S.stock).filter(x=>x.pid===pid).reduce((a,x)=>a+stockAvailable(x),0)-legacySold)+stockReturned(pid)}
+function saleStockOptions(excludeSaleId="") {
+ let rows=vals(S.stock).sort((a,b)=>b.t-a.t).map(st=>{let av=stockAvailable(st,excludeSaleId);return av>0?`<option value="${st.id}">${esc(pname(st.pid))} — ক্রয় ৳${Number(st.cost||0).toLocaleString("en-BD")} / পিস — ${av} পিস আছে</option>`:""}).filter(Boolean).join("");
+ return rows || `<option value="">কোনো Stock নেই</option>`;
 }
 function returnAllocatedQty(saleId, excludeReturnId){
  return vals(S.returns).filter(r=>r.saleId===saleId && r.id!==excludeReturnId).reduce((a,r)=>a+(+r.qty||0),0);
@@ -249,7 +231,7 @@ function metrics(){
  let saleNet=total-delivery;
  let gross=saleNet-cost-returnDelivery;
  let expense=ee.reduce((a,x)=>a+(+x.amount||0),0);
- return {total,saleNet,delivery,cost,gross,expense,net:gross-expense,stockQty:vals(S.products).reduce((a,p)=>a+qty(p.id),0),stockValue:stockValue()}
+ return {total,saleNet,delivery,cost,gross,expense,net:gross-expense,stockQty:vals(S.products).reduce((a,p)=>a+qty(p.id),0),stockValue:vals(S.products).reduce((a,p)=>a+qty(p.id)*p.cost,0)}
 }
 function render(){
  let d=$("dashDate").value||today(), ss=vals(S.sales).filter(x=>x.date===d),rr=vals(S.returns).filter(x=>x.date===d),ee=vals(S.expenses).filter(x=>x.date===d);
@@ -262,41 +244,29 @@ function render(){
  let cost=saleCost-returnCost;
  let gross=netSale-cost-rr.reduce((a,x)=>a+(+x.delivery||0),0);
  let ex=ee.reduce((a,x)=>a+(+x.amount||0),0);
- let cards=[["মোট বিক্রি",money(total)],["ডেলিভারি চার্জ (-)",money(del)],["ডেলিভারি বাদে বিক্রি",money(netSale)],["পণ্যের ক্রয়মূল্য",money(cost)],["মোট লাভ",money(gross)],["আজকের খরচ",money(ex)],["নেট লাভ",money(gross-ex)],["আজ Sale",ss.reduce((a,x)=>a+x.qty,0)-rr.reduce((a,x)=>a+x.qty,0)+" পিস"],["বর্তমান Stock Qty",metrics().stockQty+" পিস"],["📦 বর্তমান Stock Value",money(metrics().stockValue)]];
+ let allBusinessProfit=metrics().net; let dailyProfit=gross-ex; let cards=[["মোট বিক্রি",money(total)],["ডেলিভারি চার্জ (-)",money(del)],["ডেলিভারি বাদে বিক্রি",money(netSale)],["পণ্যের ক্রয়মূল্য",money(cost)],["মোট লাভ",money(dailyProfit)],["আজকের খরচ",money(ex)],["নেট লাভ",money(allBusinessProfit)],["আজ Sale",ss.reduce((a,x)=>a+x.qty,0)-rr.reduce((a,x)=>a+x.qty,0)+" পিস"],["বর্তমান Stock Qty",metrics().stockQty+" পিস"],["📦 বর্তমান Stock Value",money(metrics().stockValue)]];
  $("cards").innerHTML=cards.map(x=>`<div class="card"><div class="label">${x[0]}</div><div class="value ${x[0].includes("লাভ")?"green":""}">${x[1]}</div></div>`).join("");
  $("summary").innerHTML=`<div>📅 <b>${d}</b><br>${ss.length} Sale · ${rr.length} Return</div><div>📈 নেট লাভ<br><b class="green">${money(gross-ex)}</b></div>`;
- let po=vals(S.products).map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.cost)}</option>`).join("");
- $("stockProduct").innerHTML=po;
- $("saleProduct").innerHTML=saleStockOptions($("saleId").value||"");
- let selectedStock=S.stock[$("saleProduct").value];$("saleQty").max=selectedStock?stockRemaining(selectedStock.id,$("saleId").value||""):"";
+ let po=vals(S.products).map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.cost)}</option>`).join("");$("saleProduct").innerHTML=saleStockOptions($("saleId").value||"");$("stockProduct").innerHTML=po;
   $("returnProductNames").innerHTML=vals(S.products).map(p=>`<option value="${esc(p.name)}"></option>`).join("");
  $("productList").innerHTML=vals(S.products).map(p=>`<div class="row"><div><b>${esc(p.name)}</b><br>Cost ${money(p.cost)} · Stock ${qty(p.id)} pcs</div><div class="actions"><button class="mini" onclick="editP('${p.id}')">Edit</button><button class="mini del" onclick="delP('${p.id}')">Delete</button></div></div>`).join("")||"কোনো Product নেই";
- $("saleList").innerHTML=vals(S.sales).sort((a,b)=>b.t-a.t).map(x=>{let st=x.stockId?S.stock[x.stockId]:null;return `<div class="row"><div><b>${esc(pname(x.pid))} × ${x.qty}</b><br>${x.date} · Sale ${money(x.subtotal)} · Delivery ${money(x.delivery)} · Profit ${money(x.profit)}${st?`<br>Stock Cost ${money(st.cost)} / pcs`:``}</div><div class="actions"><button class="mini" onclick="editS('${x.id}')">Edit</button><button class="mini del" onclick="delS('${x.id}')">Delete</button></div></div>`}).join("")||"কোনো Sale নেই";
- $("stockList").innerHTML=vals(S.stock).sort((a,b)=>b.t-a.t).map(x=>{let left=stockRemaining(x.id);return `<div class="row"><div><b>${esc(pname(x.pid))}</b><br>Entry: ${x.qty} পিস × ${money(x.cost)}<br>বর্তমানে বাকি: ${left} পিস · ${x.date} · ${money(x.qty*x.cost)}</div><div class="actions"><button class="mini" onclick="editSt('${x.id}')">Edit</button><button class="mini del" onclick="delSt('${x.id}')">Delete</button></div></div>`}).join("")||"কোনো Stock In নেই";
+ $("saleList").innerHTML=vals(S.sales).sort((a,b)=>b.t-a.t).map(x=>`<div class="row"><div><b>${esc(pname(x.pid))} × ${x.qty}</b><br>${x.date} · Stock Cost ${money(x.stockId&&S.stock[x.stockId]?S.stock[x.stockId].cost:(S.products[x.pid]?.cost||0))}/পিস · Sale ${money(x.subtotal)} · Delivery ${money(x.delivery)} · Profit ${money(x.profit)}</div><div class="actions"><button class="mini" onclick="editS('${x.id}')">Edit</button><button class="mini del" onclick="delS('${x.id}')">Delete</button></div></div>`).join("")||"কোনো Sale নেই";
+ $("stockList").innerHTML=vals(S.stock).sort((a,b)=>b.t-a.t).map(x=>`<div class="row"><div><b>${esc(pname(x.pid))}</b> × ${x.qty}<br>${x.date} · ${money(x.qty*x.cost)}</div><div class="actions"><button class="mini" onclick="editSt('${x.id}')">Edit</button><button class="mini del" onclick="delSt('${x.id}')">Delete</button></div></div>`).join("")||"কোনো Stock In নেই";
  $("returnList").innerHTML=vals(S.returns).sort((a,b)=>b.t-a.t).map(x=>`<div class="row"><div><b>${esc(pname(x.pid))}</b> × ${x.qty}<br>${x.date} · মোট বিক্রি ${money(x.total)} · Delivery ${money(x.delivery)} · Stock Cost ${money(x.qty*(S.products[x.pid]?.cost||0))}</div><div class="actions"><button class="mini" onclick="editR('${x.id}')">Edit</button><button class="mini del" onclick="delR('${x.id}')">Delete</button></div></div>`).join("")||"কোনো Return নেই";
  $("expenseList").innerHTML=vals(S.expenses).sort((a,b)=>b.t-a.t).map(x=>`<div class="row"><div><b>${esc(x.title)}</b><br>${x.date} · ${money(x.amount)}</div><div class="actions"><button class="mini" onclick="editE('${x.id}')">Edit</button><button class="mini del" onclick="delE('${x.id}')">Delete</button></div></div>`).join("")||"কোনো খরচ নেই";
  let m=metrics();$("hSale").textContent=money(m.total);$("hStock").textContent=money(vals(S.stock).reduce((a,x)=>a+x.qty*x.cost,0));$("hDelivery").textContent=money(m.delivery);$("hExpense").textContent=money(m.expense);$("hReturn").textContent=money(vals(S.returns).reduce((a,x)=>a+x.total,0));
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
 document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");document.querySelectorAll(".page").forEach(x=>x.classList.remove("active"));$(b.dataset.page).classList.add("active")});
-$("dashDate").value=today();$("dashDate").onchange=render;
-$("saleProduct").onchange=()=>{let st=S.stock[$("saleProduct").value];if(st){let left=stockRemaining(st.id,$("saleId").value||"");$("saleQty").max=left;$("saleQty").value=Math.min(+$("saleQty").value||1,left||1);}};
+$("dashDate").value=today();$("refresh").onclick=render;
 $("stockQty").oninput=$("stockCost").oninput=()=>{$("stockTotal").value=(+$("stockQty").value||0)*(+$("stockCost").value||0)};
 $("productForm").onsubmit=e=>{e.preventDefault();let id=$("productId").value||uid();S.products[id]={id,name:$("productName").value.trim(),cost:+$("productCost").value};save();e.target.reset();$("productId").value="";$("productCancel").classList.add("hidden");$("productSave").textContent="Product Save";toast("Product saved")};
 $("productCancel").onclick=()=>{ $("productForm").reset();$("productId").value="";$("productCancel").classList.add("hidden");$("productSave").textContent="Product Save"};
 window.editP=id=>{let p=S.products[id];$("productId").value=id;$("productName").value=p.name;$("productCost").value=p.cost;$("productCancel").classList.remove("hidden");$("productSave").textContent="Update Product";document.querySelector('[data-page="products"]').click()};
 window.delP=id=>{if(qty(id))return toast("Stock থাকলে Product delete করা যাবে না");if(confirm("Product delete করবেন?")){markDeleted("products",id);delete S.products[id];save()}};
-$("saleForm").onsubmit=e=>{
- e.preventDefault();
- let id=$("saleId").value||uid(),stockId=$("saleProduct").value,q=+$("saleQty").value||0,pr=+$("salePrice").value||0,d=+$("saleDelivery").value||0,st=S.stock[stockId],p=st&&S.products[st.pid];
- if(!st||!p||q<=0||pr<=0)return toast("Sale তথ্য সঠিকভাবে দিন");
- let left=stockRemaining(stockId,id);
- if(q>left)return toast(`এই Stock-এ ${left} পিস আছে`);
- S.sales[id]={id,pid:p.id,stockId,qty:q,price:pr,subtotal:q*pr,total:q*pr,delivery:d,profit:q*pr-d-q*(+st.cost||0),date:S.sales[id]?.date||today(),t:S.sales[id]?.t||Date.now()};
- save();e.target.reset();$("saleId").value="";$("saleQty").value=1;$("saleDelivery").value=0;$("saleSave").textContent="Sale Save";$("saleCancel").classList.add("hidden");toast("Sale saved")
-};
-window.editS=id=>{let x=S.sales[id];if(!x)return;$("saleId").value=id;$("saleQty").value=x.qty;$("salePrice").value=x.qty?x.subtotal/x.qty:0;$("saleDelivery").value=x.delivery||0;$("saleProduct").innerHTML=saleStockOptions(id);if(x.stockId&&S.stock[x.stockId])$("saleProduct").value=x.stockId;else{let fallback=vals(S.stock).find(st=>st.pid===x.pid&&stockRemaining(st.id,id)>=x.qty);if(fallback){$("saleProduct").value=fallback.id}}$("saleSave").textContent="Update Sale";$("saleCancel").classList.remove("hidden");document.querySelector('[data-page="sale"]').click()};
-$("saleCancel").onclick=()=>{$("saleForm").reset();$("saleId").value="";$("saleQty").value=1;$("saleDelivery").value=0;$("saleProduct").innerHTML=saleStockOptions();$("saleSave").textContent="Sale Save";$("saleCancel").classList.add("hidden")};
+$("saleForm").onsubmit=e=>{e.preventDefault();let id=$("saleId").value||uid(),stockId=$("saleProduct").value,q=+$("saleQty").value||0,pr=+$("salePrice").value||0,d=+$("saleDelivery").value||0;let st=S.stock[stockId],p=st?S.products[st.pid]:null;let available=st?stockAvailable(st,id):0;if(!st||!p||q<=0||pr<=0)return toast("Stock ও Sale তথ্য সঠিকভাবে দিন");if(q>available)return toast(`এই Stock-এ মাত্র ${available} পিস আছে`);let old=S.sales[id];S.sales[id]={id,pid:st.pid,stockId,qty:q,price:pr,subtotal:q*pr,total:q*pr,delivery:d,profit:q*pr-d-q*(+st.cost||0),date:old?.date||today(),t:old?.t||Date.now()};save();e.target.reset();$("saleId").value="";$("saleQty").value=1;$("saleDelivery").value=0;$("saleSave").textContent="Sale Save";$("saleCancel").classList.add("hidden");toast("Sale saved")};
+window.editS=id=>{let x=S.sales[id];if(!x)return;$("saleId").value=id;$("saleProduct").innerHTML=saleStockOptions(id);if(x.stockId&&S.stock[x.stockId]){$("saleProduct").value=x.stockId}else{let legacy=vals(S.stock).find(st=>st.pid===x.pid);if(legacy){$("saleProduct").value=legacy.id}}$("saleQty").value=x.qty;$("salePrice").value=x.qty?x.subtotal/x.qty:0;$("saleDelivery").value=x.delivery||0;$("saleSave").textContent="Update Sale";$("saleCancel").classList.remove("hidden");document.querySelector('[data-page="sale"]').click()};
+$("saleCancel").onclick=()=>{$("saleForm").reset();$("saleId").value="";$("saleQty").value=1;$("saleDelivery").value=0;$("saleSave").textContent="Sale Save";$("saleCancel").classList.add("hidden")};
 window.delS=id=>{if(confirm("Sale delete করবেন?")){markDeleted("sales",id);delete S.sales[id];save()}};
 $("stockForm").onsubmit=e=>{e.preventDefault();let id=uid();S.stock[id]={id,pid:$("stockProduct").value,qty:+$("stockQty").value,cost:+$("stockCost").value,date:today(),t:Date.now()};save();e.target.reset();$("stockTotal").value=0;toast("Stock In saved")};
 window.editSt=id=>{let x=S.stock[id],q=prompt("নতুন Quantity",x.qty),c=prompt("নতুন Cost / piece",x.cost);if(q!==null&&c!==null){x.qty=+q;x.cost=+c;save()}};
