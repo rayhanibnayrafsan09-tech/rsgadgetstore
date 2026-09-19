@@ -47,7 +47,8 @@ input,select{width:100%;border:1px solid #d8e0dd;border-radius:14px;padding:13px
 <body>
 <header class="appbar"><div class="brand">📊 RS Business Accounts</div><div class="sync" id="syncStatus">☁️ Cloud Sync: সংযোগ হচ্ছে...</div><button id="syncNow" style="margin-top:7px;border:0;border-radius:18px;padding:7px 12px;background:#fff;color:#078b55;font-weight:700">🔄 Sync Now</button></header>
 <div class="nav-wrap"><nav class="nav" id="nav">
-<button class="active" data-page="dashboard">🏠 Dashboard</button>
+<button class="active" data-page="dashboard">🏠 মূল Dashboard</button>
+<button data-page="dailyDashboard">📅 দৈনিক Dashboard</button>
 <button data-page="sale">🛒 Sale Entry</button><button data-page="products">📦 Products</button>
 <button data-page="stock">📥 Stock In</button><button data-page="return">↩️ Return</button>
 <button data-page="expense">💸 খরচ</button><button data-page="history">📜 History</button>
@@ -55,10 +56,17 @@ input,select{width:100%;border:1px solid #d8e0dd;border-radius:14px;padding:13px
 
 <main>
 <section id="dashboard" class="page active">
-<div class="hero"><h1>📊 RS Business Accounts</h1>
-<div class="date-row"><label>তারিখ<input type="date" id="dashDate"></label><button class="btn primary" id="refresh">হিসাব দেখুন</button></div></div>
+<div class="hero"><h1>📊 মূল Dashboard</h1><div class="note">এখানে পুরো ব্যবসার এখন পর্যন্ত মোট হিসাব দেখাবে। দৈনিক Dashboard-এর সব হিসাবও স্বয়ংক্রিয়ভাবে এখানে যোগ হবে।</div></div>
 <div class="cards" id="cards"></div>
-<div class="panel"><h2 class="section-title">📈 আজকের সংক্ষিপ্ত হিসাব</h2><div class="summary" id="summary"></div></div>
+<div class="panel"><h2 class="section-title">📅 চলতি মাসের হিসাব</h2><div class="summary" id="monthSummary"></div></div>
+<div class="panel"><h2 class="section-title">📊 পুরো ব্যবসার সংক্ষিপ্ত হিসাব</h2><div class="summary" id="summary"></div></div>
+</section>
+
+<section id="dailyDashboard" class="page">
+<div class="hero"><h1>📅 দৈনিক Dashboard</h1>
+<div class="date-row"><label>তারিখ<input type="date" id="dashDate"></label><button class="btn primary" id="refresh">হিসাব দেখুন</button></div></div>
+<div class="cards" id="dailyCards"></div>
+<div class="panel"><h2 class="section-title">📈 নির্বাচিত দিনের সংক্ষিপ্ত হিসাব</h2><div class="summary" id="dailySummary"></div></div>
 </section>
 
 <section id="sale" class="page"><div class="panel"><h2 class="section-title">🛒 Sale Entry</h2>
@@ -233,8 +241,8 @@ function metrics(){
  let expense=ee.reduce((a,x)=>a+(+x.amount||0),0);
  return {total,saleNet,delivery,cost,gross,expense,net:gross-expense,stockQty:vals(S.products).reduce((a,p)=>a+qty(p.id),0),stockValue:vals(S.products).reduce((a,p)=>a+qty(p.id)*p.cost,0)}
 }
-function render(){
- let d=$("dashDate").value||today(), ss=vals(S.sales).filter(x=>x.date===d),rr=vals(S.returns).filter(x=>x.date===d),ee=vals(S.expenses).filter(x=>x.date===d);
+function getPeriodMetrics(filterFn){
+ let ss=vals(S.sales).filter(filterFn),rr=vals(S.returns).filter(filterFn),ee=vals(S.expenses).filter(filterFn);
  let total=ss.reduce((a,x)=>a+(+x.subtotal||0),0)-rr.reduce((a,x)=>a+(+x.total||0),0);
  let reversedDel=rr.reduce((a,x)=>a+getReturnSaleDelivery(x),0);
  let del=ss.reduce((a,x)=>a+(+x.delivery||0),0)-reversedDel;
@@ -242,11 +250,44 @@ function render(){
  let saleCost=ss.reduce((a,x)=>a+(+x.qty||0)*(S.products[x.pid]?.cost||0),0);
  let returnCost=rr.reduce((a,x)=>a+(+x.qty||0)*(S.products[x.pid]?.cost||0),0);
  let cost=saleCost-returnCost;
- let gross=netSale-cost-rr.reduce((a,x)=>a+(+x.delivery||0),0);
+ let returnDelivery=rr.reduce((a,x)=>a+(+x.delivery||0),0);
+ let gross=netSale-cost-returnDelivery;
  let ex=ee.reduce((a,x)=>a+(+x.amount||0),0);
- let allBusinessProfit=metrics().net; let dailyProfit=gross-ex; let cards=[["মোট বিক্রি",money(total)],["ডেলিভারি চার্জ (-)",money(del)],["ডেলিভারি বাদে বিক্রি",money(netSale)],["পণ্যের ক্রয়মূল্য",money(cost)],["মোট লাভ",money(dailyProfit)],["আজকের খরচ",money(ex)],["নেট লাভ",money(allBusinessProfit)],["আজ Sale",ss.reduce((a,x)=>a+x.qty,0)-rr.reduce((a,x)=>a+x.qty,0)+" পিস"],["বর্তমান Stock Qty",metrics().stockQty+" পিস"],["📦 বর্তমান Stock Value",money(metrics().stockValue)]];
+ let profit=gross-ex;
+ return {ss,rr,ee,total,del,netSale,cost,returnDelivery,gross,ex,profit,qty:ss.reduce((a,x)=>a+(+x.qty||0),0)-rr.reduce((a,x)=>a+(+x.qty||0),0)};
+}
+function renderDaily(){
+ let d=$("dashDate").value||today(), m=getPeriodMetrics(x=>x.date===d);
+ let cards=[
+  ["মোট বিক্রি",money(m.total)],
+  ["ডেলিভারি চার্জ (-)",money(m.del)],
+  ["ডেলিভারি বাদে বিক্রি",money(m.netSale)],
+  ["পণ্যের ক্রয়মূল্য",money(m.cost)],
+  ["মোট লাভ",money(m.profit)],
+  ["আজকের খরচ",money(m.ex)],
+  ["আজ Sale",m.qty+" পিস"]
+ ];
+ $("dailyCards").innerHTML=cards.map(x=>`<div class="card"><div class="label">${x[0]}</div><div class="value ${x[0].includes("লাভ")?"green":""}">${x[1]}</div></div>`).join("");
+ $("dailySummary").innerHTML=`<div>📅 <b>${d}</b><br>${m.ss.length} Sale · ${m.rr.length} Return · ${m.ee.length} খরচ</div><div>📈 দিনের লাভ<br><b class="green">${money(m.profit)}</b></div>`;
+}
+function render(){
+ let all=metrics();
+ let cards=[
+  ["মোট বিক্রি",money(all.total)],
+  ["ডেলিভারি চার্জ (-)",money(all.delivery)],
+  ["ডেলিভারি বাদে বিক্রি",money(all.saleNet)],
+  ["পণ্যের ক্রয়মূল্য",money(all.cost)],
+  ["পুরো ব্যবসার লাভ",money(all.gross)],
+  ["মোট খরচ",money(all.expense)],
+  ["নেট লাভ",money(all.net)],
+  ["মোট Sale",vals(S.sales).reduce((a,x)=>a+(+x.qty||0),0)-vals(S.returns).reduce((a,x)=>a+(+x.qty||0),0)+" পিস"],
+  ["বর্তমান Stock Qty",all.stockQty+" পিস"],
+  ["📦 বর্তমান Stock Value",money(all.stockValue)]
+ ];
  $("cards").innerHTML=cards.map(x=>`<div class="card"><div class="label">${x[0]}</div><div class="value ${x[0].includes("লাভ")?"green":""}">${x[1]}</div></div>`).join("");
- $("summary").innerHTML=`<div>📅 <b>${d}</b><br>${ss.length} Sale · ${rr.length} Return</div><div>📈 নেট লাভ<br><b class="green">${money(gross-ex)}</b></div>`;
+ let now=new Date(), monthKey=now.toISOString().slice(0,7), mm=getPeriodMetrics(x=>String(x.date||"").slice(0,7)===monthKey);
+ $("monthSummary").innerHTML=`<div>📅 <b>${monthKey}</b><br>${mm.ss.length} Sale · ${mm.rr.length} Return · ${mm.ee.length} খরচ</div><div>🛒 মোট Sale<br><b>${mm.qty} পিস</b></div><div>📈 মাসের লাভ<br><b class="green">${money(mm.profit)}</b></div><div>💰 মাসের বিক্রি<br><b>${money(mm.total)}</b></div>`;
+ $("summary").innerHTML=`<div>🏢 <b>পুরো ব্যবসা</b><br>${vals(S.sales).length} Sale · ${vals(S.returns).length} Return · ${vals(S.expenses).length} খরচ</div><div>📈 নেট লাভ<br><b class="green">${money(all.net)}</b></div>`;
  let po=vals(S.products).map(p=>`<option value="${p.id}">${esc(p.name)} — ${money(p.cost)}</option>`).join("");$("saleProduct").innerHTML=saleStockOptions($("saleId").value||"");$("stockProduct").innerHTML=po;
   $("returnProductNames").innerHTML=vals(S.products).map(p=>`<option value="${esc(p.name)}"></option>`).join("");
  $("productList").innerHTML=vals(S.products).map(p=>`<div class="row"><div><b>${esc(p.name)}</b><br>Cost ${money(p.cost)} · Stock ${qty(p.id)} pcs</div><div class="actions"><button class="mini" onclick="editP('${p.id}')">Edit</button><button class="mini del" onclick="delP('${p.id}')">Delete</button></div></div>`).join("")||"কোনো Product নেই";
@@ -255,10 +296,12 @@ function render(){
  $("returnList").innerHTML=vals(S.returns).sort((a,b)=>b.t-a.t).map(x=>`<div class="row"><div><b>${esc(pname(x.pid))}</b> × ${x.qty}<br>${x.date} · মোট বিক্রি ${money(x.total)} · Delivery ${money(x.delivery)} · Stock Cost ${money(x.qty*(S.products[x.pid]?.cost||0))}</div><div class="actions"><button class="mini" onclick="editR('${x.id}')">Edit</button><button class="mini del" onclick="delR('${x.id}')">Delete</button></div></div>`).join("")||"কোনো Return নেই";
  $("expenseList").innerHTML=vals(S.expenses).sort((a,b)=>b.t-a.t).map(x=>`<div class="row"><div><b>${esc(x.title)}</b><br>${x.date} · ${money(x.amount)}</div><div class="actions"><button class="mini" onclick="editE('${x.id}')">Edit</button><button class="mini del" onclick="delE('${x.id}')">Delete</button></div></div>`).join("")||"কোনো খরচ নেই";
  let m=metrics();$("hSale").textContent=money(m.total);$("hStock").textContent=money(vals(S.stock).reduce((a,x)=>a+x.qty*x.cost,0));$("hDelivery").textContent=money(m.delivery);$("hExpense").textContent=money(m.expense);$("hReturn").textContent=money(vals(S.returns).reduce((a,x)=>a+x.total,0));
+ renderDaily();
 }
+
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2)}
 document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{document.querySelectorAll("#nav button").forEach(x=>x.classList.remove("active"));b.classList.add("active");document.querySelectorAll(".page").forEach(x=>x.classList.remove("active"));$(b.dataset.page).classList.add("active")});
-$("dashDate").value=today();$("refresh").onclick=render;
+$("dashDate").value=today();$("refresh").onclick=renderDaily;
 $("stockQty").oninput=$("stockCost").oninput=()=>{$("stockTotal").value=(+$("stockQty").value||0)*(+$("stockCost").value||0)};
 $("productForm").onsubmit=e=>{e.preventDefault();let id=$("productId").value||uid();S.products[id]={id,name:$("productName").value.trim(),cost:+$("productCost").value};save();e.target.reset();$("productId").value="";$("productCancel").classList.add("hidden");$("productSave").textContent="Product Save";toast("Product saved")};
 $("productCancel").onclick=()=>{ $("productForm").reset();$("productId").value="";$("productCancel").classList.add("hidden");$("productSave").textContent="Product Save"};
